@@ -1,4 +1,0 @@
-read_verilog E:/deepseek/2026-9-1/output_default/led_chaser/rtl/led_chaser.v
-synth -top led_chaser
-stat
-write_verilog -noattr E:/deepseek/2026-9-1/output_default/led_chaser/synth/led_chaser_netlist.v

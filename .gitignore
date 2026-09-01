@@ -2,11 +2,17 @@
 __pycache__/
 *.py[cod]
 *.egg-info/
+*.egg
 .venv/
 venv/
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
 
-# 生成的设计产物（可重新生成）
-output/
+# 生成的设计产物（可重新生成，不纳入版本库）
+output*/
 
 # 仿真/综合中间文件
 *.vvp

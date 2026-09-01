@@ -4,6 +4,29 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循
 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.2.0] - 2026-09-01
+
+架构升级：生成侧从「模板填充」升级为「LLM 自由生成 + 工具链验证」。设计边界不再人为设限，
+取决于模型自身的电子电路知识与逻辑设计能力；验证侧只约定 4 条最小硬契约。
+
+### 新增
+
+- 设计产物契约（`hdc/design.py`）：`Design` + `write_artifacts`/`load_artifacts` +
+  `verify_design`（复用仿真/综合做单轮验证，返回 `VerifyOutcome` 错误分类）。
+- LLM provider 抽象（`hdc/llm.py`）：Anthropic / OpenAI 兼容 / Ollama 三种 provider，
+  纯标准库；配置读 `HDC_*` 环境变量或 `~/.hdc/config`。
+- 契约注入 + 有界修复：`SYSTEM_PROMPT` 注入 4 条最小硬契约与 JSON 输出格式；
+  `design_with_fix` 把错误分类反馈给模型重写（默认 3 轮）。
+- `--design` 命令（`hdc/__main__.py`）：`python -m hdc --design "需求"` 端到端自动设计闭环。
+- 通用图纸（`hdc/diagram.py`）：从 `design.json`（interface + state_machine）生成模块框图
+  与状态转移图，取代流水灯专用硬编码。
+- 开发期设计工作流（`.claude/skills/hdc-design/`）：用 Claude 做逻辑设计的标准流程。
+- 演示脚本（`examples/demo_llm_design.py`）：呼吸灯 PWM 调光，走通完整闭环。
+
+### 修复
+
+- `-DDUMP_VCD` 死开关：testbench 模板补上 `#ifdef DUMP_VCD` 波形转储块，`--dump` 真正生效。
+
 ## [0.1.0] - 2026-09-01
 
 首个 MVP：从自然语言需求 / 结构化 Spec 到可交付 HDL 设计包的

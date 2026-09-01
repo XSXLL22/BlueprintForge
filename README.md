@@ -42,10 +42,20 @@
 - [Icarus Verilog](http://iverilog.icarus.com/)（`iverilog` + `vvp`）—— 仿真
 - [Yosys](https://yosyshq.net/yosys/)（`yosys`）—— 综合检查
 
-Windows 上可用 Chocolatey 安装（**需要管理员权限的终端**）：
+Windows 安装：
 
 ```powershell
-choco install iverilog yosys -y
+# iverilog（需要管理员终端）
+choco install iverilog -y
+```
+
+yosys 不在 choco 社区源里，官方 Windows 分发是
+[OSS CAD Suite](https://github.com/YosysHQ/oss-cad-suite-build/releases)（便携版，免安装）。
+解压后，把套件根目录设到环境变量 `OSS_CAD_SUITE`（`hdc` 会据此定位 `yosys`），
+或直接把 `bin/` 加入 `PATH`：
+
+```powershell
+setx OSS_CAD_SUITE "E:\oss-cad-suite"
 ```
 
 工具未安装时，`hdc` 会自动跳过对应阶段并在报告里注明，不会报错。

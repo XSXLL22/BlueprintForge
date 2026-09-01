@@ -26,6 +26,7 @@
 │   ├── led_chaser.v.tpl      #   可综合 RTL 模板
 │   └── tb_led_chaser.v.tpl   #   自检 testbench 模板
 ├── hdc/                      # Python 工具链（纯标准库，无第三方依赖）
+│   ├── clarify.py            #   需求澄清层：自然语言 -> Spec 覆盖字段 + 假设
 │   ├── spec.py               #   Spec 加载 / 校验 / 派生参数
 │   ├── generate.py           #   模板渲染：Spec -> RTL / tb
 │   ├── toolchain.py          #   检测 iverilog/vvp/yosys
@@ -33,6 +34,7 @@
 │   ├── verify.py             #   仿真 / 综合 + 结果解析 / 错误分类
 │   ├── diagram.py            #   生成模块框图 / 状态转移图（SVG）
 │   ├── pipeline.py           #   闭环编排 + 打包输出
+│   ├── demo.py               #   端到端演示
 │   └── __main__.py           #   命令行入口
 └── tests/                    # unittest（不依赖模拟器的部分可直接跑）
 ```
@@ -60,6 +62,23 @@ setx OSS_CAD_SUITE "E:\oss-cad-suite"
 ```
 
 工具未安装时，`hdc` 会自动跳过对应阶段并在报告里注明，不会报错。
+
+## 端到端演示
+
+一句自然语言需求，走完整闭环（澄清 → Spec → 生成 → 仿真 → 综合 → 打包）：
+
+```bash
+# 内置需求：5 个灯，10ms 换一次，从左往右循环
+python -m hdc --demo
+
+# 自定义需求
+python -m hdc --demo "8 个灯，500 毫秒换一次，从右往左，到头就停，高电平复位，不带使能，25MHz"
+```
+
+澄清层（`hdc/clarify.py`）用**确定性关键词提取 + 默认值兜底**：能识别的字段用提取值
+（LED 数、间隔、方向、频率、循环、使能、复位），识别不到的按默认值并打印「假设」清单，
+等价于有界澄清在没有 LLM 时的退化实现。生产环境把 `clarify()` 内部规则替换为 LLM 结构化
+抽取即可，下游接口不变。
 
 ## 快速开始
 
@@ -145,7 +164,7 @@ python -m unittest discover tests
 
 ## MVP 验收标准对照
 
-- [x] 模糊需求 ≤3 轮追问内生成正确流水灯（澄清层以 Spec 字段表 + 默认值兜底实现）
+- [x] 模糊需求 ≤3 轮追问内生成正确流水灯（澄清层以关键词提取 + 默认值兜底实现，见 `--demo`）
 - [x] 自动仿真通过，testbench 能检出至少一个故意注入的错误
 - [x] Yosys 综合无 error（工具链安装后）
 - [x] 模块框图 / 状态转移图（`diagrams/`，随 Spec 参数自动生成 SVG）

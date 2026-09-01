@@ -1,4 +1,4 @@
-"""命令行入口：python -m hdc <spec.json> [选项]。"""
+"""命令行入口：python -m hdc <spec.json> [选项]，或 python -m hdc --demo [需求]。"""
 from __future__ import annotations
 
 import argparse
@@ -15,7 +15,8 @@ def main(argv: list[str] | None = None) -> int:
         prog="hdc",
         description="AI 辅助数字硬件设计闭环（MVP）：从 Spec 生成流水灯并仿真/综合验证",
     )
-    p.add_argument("spec", help="Spec JSON 路径")
+    p.add_argument("spec", nargs="?", help="Spec JSON 路径；--demo 时为一句自然语言需求")
+    p.add_argument("--demo", action="store_true", help="运行端到端演示（需求 → 澄清 → Spec → 闭环）")
     p.add_argument("--out", default="output", help="输出根目录（默认 output）")
     p.add_argument("--no-sim", action="store_true", help="跳过仿真")
     p.add_argument("--no-synth", action="store_true", help="跳过综合")
@@ -25,6 +26,13 @@ def main(argv: list[str] | None = None) -> int:
         help="向 RTL 注入错误以验证 testbench 能检出（预期仿真 FAIL）",
     )
     args = p.parse_args(argv)
+
+    if args.demo:
+        from hdc.demo import run_demo
+        return run_demo(args.spec, Path(args.out))
+
+    if not args.spec:
+        p.error("缺少 Spec JSON 路径（或使用 --demo 运行演示）")
 
     result = build(
         Path(args.spec),

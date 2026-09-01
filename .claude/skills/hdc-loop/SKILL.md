@@ -10,6 +10,7 @@ description: hdc 数字硬件设计闭环的标准执行流程。当需要根据
 
 ## 何时使用
 
+- 用户给了一句自然语言需求（"做个流水灯…"）→ 走澄清层 + 演示
 - 用户要新增/修改一个流水灯设计（改参数、改方向、改使能、改复位）
 - 用户要跑闭环：生成 → 仿真 → 综合 → 打包
 - 用户要验证 testbench 能检出错误（错误注入）
@@ -29,6 +30,18 @@ description: hdc 数字硬件设计闭环的标准执行流程。当需要根据
    （`feat:`/`fix:`/`docs:`/`test:`/`refactor:`），中文描述。
 
 ## 标准流程
+
+### 0. 自然语言需求（澄清层）
+
+```bash
+# 内置演示：需求 → 澄清 → Spec → 完整闭环
+python -m hdc --demo
+# 自定义需求
+python -m hdc --demo "8 个灯，500 毫秒换一次，从右往左，到头就停，高电平复位，不带使能，25MHz"
+```
+
+澄清层 `hdc/clarify.py` 用确定性关键词提取 + 默认值兜底，识别不到的字段按默认值并打印
+「假设」清单。生产环境把 `clarify()` 内部规则换成 LLM 结构化抽取即可，接口不变。
 
 ### 1. 改需求 → 改 Spec JSON
 
@@ -91,6 +104,8 @@ git add -A && git commit -m "<type>(<scope>): <中文描述>"
 
 ## 文件速查
 
+- `hdc/clarify.py` — 需求澄清层（自然语言 → Spec 覆盖字段 + 假设）
+- `hdc/demo.py` — 端到端演示入口
 - `hdc/spec.py` — Spec 加载/校验/派生参数
 - `hdc/generate.py` — 模板渲染（Spec → RTL/tb）
 - `hdc/verify.py` — 仿真/综合 + 结果解析

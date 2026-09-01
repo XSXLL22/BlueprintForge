@@ -1,10 +1,13 @@
 # hdc — AI 辅助数字硬件设计闭环（MVP）
 
-从自然语言需求出发，经过有界澄清、结构化 Spec、模板化生成、自动仿真验证、综合检查，
-最终输出一个**可进入 EDA 流程的数字逻辑设计包**。本仓库是 MVP 实现，当前只支持一个受限
-类别：**流水灯（LED chaser）**。
+从自然语言需求出发，自动完成**逻辑设计 → 仿真验证 → 综合检查 → 有界修复 → 打包**，
+输出可进入 EDA 流程的数字逻辑设计包。生成侧有两条路径：
 
-> 目标：先跑通”流水灯”最小闭环，保留扩展性，但不提前引入不必要的复杂度。
+- **模板路径**：Spec JSON 驱动模板生成，确定性、可重复（当前覆盖**流水灯**）。
+- **LLM 自由设计路径**：接入大模型（开发期用 Claude，交付期用户接自己的 API）自由产出
+  Verilog + 状态机 + 结构化描述 + 设计构想，工具链自动验证并修复，**任意电路皆可**。
+
+> 设计边界不再人为设限，取决于模型的电子电路知识与逻辑设计能力；验证侧只约定 4 条最小硬契约。
 
 ## 文档导航
 
@@ -17,8 +20,8 @@
 
 ## 核心原则
 
-- **Spec 是唯一事实来源**：所有下游模块只读 Spec JSON，不读用户字符串。
-- **模板为主**：RTL / testbench 以模板生成，LLM（未来）只填参数，不自由写 HDL。
+- **LLM 是设计大脑，工具链是安全网**：LLM 自由产出 RTL/testbench/状态机/构想，工具链验证兜底。
+- **两条生成路径**：模板路径以 Spec JSON 为唯一事实来源；LLM 路径以「LLM 产出」为事实来源。
 - **验证基于属性断言**：不只“仿真跑通”，testbench 内核对复位态、使能保持、方向、
   间隔、wrap、无 X/Z 等属性逐项断言。
 - **综合检查可综合**：Yosys 综合无 error 即通过，并产出资源报告。
@@ -44,7 +47,11 @@
 │   ├── diagram.py            #   生成模块框图 / 状态转移图（SVG）
 │   ├── pipeline.py           #   闭环编排 + 打包输出
 │   ├── demo.py               #   端到端演示
+│   ├── design.py             #   LLM 自由设计产物契约 + 验证编排
+│   ├── llm.py                #   LLM provider 抽象 + 契约注入 + 有界修复
 │   └── __main__.py           #   命令行入口
+├── examples/                 #   LLM 自由设计演示脚本（呼吸灯 PWM 等）
+├── .claude/skills/hdc-design/  # 开发期用 Claude 做逻辑设计的标准工作流
 └── tests/                    # unittest（不依赖模拟器的部分可直接跑）
 ```
 
@@ -88,6 +95,27 @@ python -m hdc --demo "8 个灯，500 毫秒换一次，从右往左，到头就�
 （LED 数、间隔、方向、频率、循环、使能、复位），识别不到的按默认值并打印「假设」清单，
 等价于有界澄清在没有 LLM 时的退化实现。生产环境把 `clarify()` 内部规则替换为 LLM 结构化
 抽取即可，下游接口不变。
+
+## LLM 自由设计（--design）
+
+接入大模型，从一句自然语言需求自动产出任意电路设计并闭环验证：
+
+```bash
+# Anthropic（Claude）
+HDC_PROVIDER=anthropic HDC_API_KEY=sk-ant-... python -m hdc --design "做个 PWM 呼吸灯"
+
+# 本地 Ollama（免费、离线，先 ollama pull llama3.1）
+HDC_PROVIDER=ollama python -m hdc --design "做个 4 位计数器"
+```
+
+LLM 只需遵守 4 条最小硬契约（RTL 顶层 = `project`、TB 顶层 = `tb_project`、TB 打印
+`SIM_RESULT: PASS`、RTL 可综合），其余端口/参数/结构完全自由；未通过时自动把错误分类
+反馈给模型重写，最多 3 轮。产物落在 `output/<project>/`（`rtl/`、`tb/`、`design.json`、
+`state_machine.md`、`concept.md`、`sim/`、`synth/`、`diagrams/`）。配置与三种 provider
+详见 [USAGE.md 第 9 节](./USAGE.md#9-llm-自由设计--design)。
+
+开发期（不接 API）用 `.claude/skills/hdc-design` 让 Claude 走同一套设计工作流，参考
+`examples/demo_llm_design.py`（呼吸灯 PWM 调光，完整闭环）。
 
 ## 快速开始
 
@@ -183,6 +211,7 @@ python -m unittest discover tests
 
 ## 已知限制（MVP 有意为之）
 
-- 仅支持流水灯一种设计类别；`type` 字段当前只作文档用途。
-- 复位仅支持异步（低/高有效）；同步复位暂未实现。
-- 不实现独立 IR 层，由 Spec 直接驱动生成。
+- 模板路径仅覆盖流水灯一种设计类别（`type` 字段当前只作文档用途）；LLM 路径不设限。
+- 模板路径复位仅支持异步（低/高有效）；同步复位暂未实现。
+- 不实现独立 IR 层，模板路径由 Spec 直接驱动生成。
+- LLM 路径依赖模型自身能力，且需用户配置 API key（见 USAGE 第 9 节）。

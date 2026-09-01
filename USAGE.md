@@ -7,17 +7,25 @@
 
 ## 1. 这是什么
 
-hdc 把「做一个数字电路」这件手工活变成一条可重复的流水线：
+hdc 把「做一个数字电路」这件手工活变成一条可重复的流水线，支持两条生成路径：
 
 ```
-自然语言需求  →  澄清  →  Spec JSON  →  生成 RTL/testbench  →  仿真  →  综合  →  打包
+路径一（模板，流水灯专用）：
+  自然语言需求 → 澄清 → Spec JSON → 模板生成 RTL/testbench → 仿真 → 综合 → 打包
+
+路径二（LLM 自由设计，任意电路）：
+  自然语言需求 → LLM 生成 RTL/testbench/状态机/构想 → 仿真 → 综合 → 有界修复 → 打包
 ```
 
-当前只支持一种设计类别：**流水灯（LED chaser）**。输入一句中文需求（或一份 Spec JSON），
-输出一个可直接进入 EDA 流程的设计包（可综合 RTL、自检 testbench、仿真/综合日志、图纸、报告）。
+- **模板路径**（`python -m hdc specs/led_chaser.json`）：确定性、可重复，只覆盖流水灯。
+- **LLM 自由设计路径**（`python -m hdc --design "需求"`）：开发期用 Claude 做设计大脑，
+  交付期用户接入自己的 API（Anthropic / OpenAI 兼容 / Ollama）。LLM 自由产出 Verilog +
+  状态机 + 结构化描述 + 设计构想，工具链（iverilog 仿真 + yosys 综合）自动验证并**有界修复**
+  （把错误分类反馈给模型重写，最多 3 轮），直到通过或轮次耗尽。
 
-核心设计原则：**Spec JSON 是唯一事实来源**，RTL/testbench 由模板生成，验证靠属性断言，
-综合靠 Yosys。全程可重复运行，无需手改 HDL。
+核心设计原则：**LLM 是逻辑设计的大脑，工具链是安全网**。设计边界不再人为设限，取决于模型
+自身的电子电路知识与逻辑设计能力；验证侧只约定 4 条最小硬契约（见第 9 节），其余端口/参数/
+结构完全自由。
 
 ---
 
@@ -73,29 +81,34 @@ python -m hdc specs/led_chaser_fast.json
 
 # ③ 从自然语言需求跑闭环（自定义参数）
 python -m hdc --demo "8 个灯，500 毫秒换一次，从右往左，到头就停，高电平复位，不带使能，25MHz"
+
+# ④ 用 LLM 从任意需求自动设计（先配好 API，见第 9 节）
+HDC_PROVIDER=anthropic HDC_API_KEY=sk-... python -m hdc --design "做一个呼吸灯 PWM 调光"
 ```
 
-输出落在 `output/led_chaser/`。终端末尾打印 `结论：OK` 即通过。
+模板路径输出落在 `output/led_chaser/`；LLM 路径落在 `output/<project>/`。终端末尾打印
+`结论：OK` 即通过。
 
 ---
 
 ## 4. 命令行参考
 
 ```
-python -m hdc [spec | --demo [需求]] [选项]
+python -m hdc [spec | --demo [需求] | --design 需求] [选项]
 ```
 
 | 参数 | 说明 |
 |------|------|
-| `spec` | Spec JSON 路径（位置参数）。缺省且未加 `--demo` 时报错。 |
+| `spec` | Spec JSON 路径（位置参数）。缺省且未加 `--demo`/`--design` 时报错。 |
 | `--demo [需求]` | 端到端演示。`需求` 是一句中文；省略时用内置示例。 |
+| `--design 需求` | 用接入的 LLM API 从需求自动设计并闭环（见第 9 节）。 |
 | `--out DIR` | 输出根目录，默认 `output`。 |
 | `--no-sim` | 跳过仿真。 |
 | `--no-synth` | 跳过综合。 |
 | `--dump` | 仿真时额外导出 VCD 波形到 `sim/waveform.vcd`。 |
-| `--inject BUG` | 向 RTL 注入一个错误，验证 testbench 能检出（预期仿真 FAIL）。取值见第 10 节。 |
+| `--inject BUG` | 向 RTL 注入一个错误，验证 testbench 能检出（预期仿真 FAIL）。取值见第 11 节。 |
 
-退出码：`0` 表示闭环通过，`1` 表示失败或参数错误。
+退出码：`0` 表示闭环通过，`1` 表示失败，`2` 表示 LLM 配置/调用错误。
 
 ---
 
@@ -210,7 +223,69 @@ output/led_chaser/
 
 ---
 
-## 9. 修改设计参数示例
+## 9. LLM 自由设计（--design）
+
+`--design` 让 hdc 调用大模型，从一句自然语言需求自动产出完整设计并闭环验证。产物与
+模板路径不同，以「LLM 产出」为事实来源：
+
+```
+output/<project>/
+├── rtl/<project>.v          # LLM 写的可综合 Verilog
+├── tb/tb_<project>.v        # LLM 写的自检 testbench
+├── design.json              # 结构化描述（interface / state_machine）
+├── state_machine.md         # 状态机描述（Mermaid）
+├── concept.md               # 逻辑电路设计构想
+└── sim/  synth/  diagrams/  # 工具链产出（验证 + 图纸）
+```
+
+### 9.1 配置 API
+
+provider / key / model / endpoint 按优先级读取：**环境变量 > `~/.hdc/config`**。
+
+| 环境变量 | 配置文件键 | 说明 |
+|----------|-----------|------|
+| `HDC_PROVIDER` | `provider` | `anthropic` / `openai` / `ollama` |
+| `HDC_API_KEY` | `api_key` | Anthropic 或 OpenAI 兼容服务的 key（Ollama 免） |
+| `HDC_MODEL` | `model` | 模型名，如 `claude-sonnet-5` / `gpt-4o-mini` / `llama3.1` |
+| `HDC_BASE_URL` | `base_url` | API 地址（默认官方端点；Ollama 默认 `http://localhost:11434`） |
+
+`~/.hdc/config` 是 JSON，例如：
+
+```json
+{ "provider": "anthropic", "api_key": "sk-ant-...", "model": "claude-sonnet-5" }
+```
+
+### 9.2 三种 provider
+
+```bash
+# Anthropic（Claude）
+HDC_PROVIDER=anthropic HDC_API_KEY=sk-ant-... python -m hdc --design "做个 4 位计数器"
+
+# OpenAI 兼容（DeepSeek / Kimi / 通义等改 base_url 即可）
+HDC_PROVIDER=openai HDC_API_KEY=sk-... python -m hdc --design "做个 PWM 呼吸灯"
+
+# 本地 Ollama（免费、离线，先 ollama pull llama3.1）
+HDC_PROVIDER=ollama python -m hdc --design "做个带使能的计数器"
+```
+
+### 9.3 最小硬契约
+
+LLM 只需遵守 4 条（其余完全自由，`hdc/llm.py` 已注入 system prompt）：
+
+1. RTL 顶层模块名 = `project`；testbench 顶层模块名 = `tb_<project>`。
+2. testbench 结束时打印精确字符串 `SIM_RESULT: PASS` / `SIM_RESULT: FAIL`，`$finish` 在其后。
+3. RTL 可综合（Verilog-2001，无 `initial`）。
+4. 建议（非强制）：逐条断言打印 `CHECK <name>: PASS/FAIL`。
+
+### 9.4 有界修复
+
+设计未通过时，hdc 把错误分类（`compile_error` / `assertion_failure` / `synthesis_error`）
+反馈给模型重写，最多 3 轮。开发期（不接 API）用 `.claude/skills/hdc-design` 让 Claude 走
+同一套工作流。
+
+---
+
+## 10. 修改设计参数示例
 
 只改 Spec JSON，不动任何 HDL：
 
@@ -225,7 +300,7 @@ output/led_chaser/
 
 ---
 
-## 10. 错误注入（验收自检）
+## 11. 错误注入（验收自检）
 
 `--inject` 故意往 RTL 塞缺陷，证明验证层真的能抓住 bug（每次都应「仿真 FAIL」）：
 
@@ -242,7 +317,7 @@ python -m hdc specs/led_chaser_fast.json --inject wrong_direction   # 预期 NG
 
 ---
 
-## 11. 常见问题（FAQ）
+## 12. 常见问题（FAQ）
 
 **Q：终端里中文显示成乱码？**
 A：Windows 控制台默认 GBK。二选一：先 `chcp 65001` 再运行；或在 Git Bash 里加前缀
@@ -265,17 +340,17 @@ A：默认 500ms @ 50MHz 要跑 ~1.25 亿周期。日常用 `specs/led_chaser_fa
 
 ---
 
-## 12. 二次开发
+## 13. 二次开发
 
-- **接真实 LLM 澄清层**：替换 `hdc/clarify.py` 里 `clarify()` 的规则为 LLM 结构化抽取，
-  返回 `Clarification` 接口不变，下游无感。
-- **新设计类别**：加对应 `templates/*.tpl` 与 `generate.py` 分支，复用 `verify.py` /
+- **LLM 自由设计路径**：核心在 `hdc/llm.py`（provider 抽象 + 契约注入 + 修复闭环）与
+  `hdc/design.py`（产物契约 + 验证编排）；开发期设计工作流见 `.claude/skills/hdc-design`。
+- **模板路径（流水灯）**：加对应 `templates/*.tpl` 与 `generate.py` 分支，复用 `verify.py` /
   `pipeline.py`。
 - **测试与提交规范**：见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 
 ---
 
-## 13. 文档索引
+## 14. 文档索引
 
 | 文档 | 内容 |
 |------|------|

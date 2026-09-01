@@ -5,6 +5,7 @@ RTL/tb 同源一致（改 Spec 即改图纸）。
 """
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 from hdc.spec import Spec
@@ -176,3 +177,153 @@ def write_diagrams(spec: Spec, diagrams_dir: Path) -> list[Path]:
     block.write_text(generate_block_diagram(spec), encoding="utf-8")
     state.write_text(generate_state_diagram(spec), encoding="utf-8")
     return [block, state]
+
+
+# ---- 通用图纸（从 design.json 生成，供 LLM 自由设计使用）---------------------
+
+def generate_generic_block_diagram(project: str, interface: dict) -> str:
+    """通用模块框图：左侧输入、右侧输出，内容取自 interface。"""
+    inputs = [str(x) for x in interface.get("inputs", [])]
+    outputs = [str(x) for x in interface.get("outputs", [])]
+    n = max(len(inputs), len(outputs), 1)
+    row_h = 36
+    box_x1, box_x2 = 250, 460
+    box_w = box_x2 - box_x1
+    top = 64
+    box_h = n * row_h + 16
+    box_y1, box_y2 = top, top + box_h
+
+    def cy(i: int) -> float:
+        return top + 16 + i * row_h + row_h / 2
+
+    parts = []
+    for i, name in enumerate(inputs):
+        y = cy(i)
+        parts.append(
+            f'<line x1="{box_x1-46}" y1="{y:.0f}" x2="{box_x1}" y2="{y:.0f}" stroke="#555" stroke-width="1.5"/>'
+            f'<circle cx="{box_x1}" cy="{y:.0f}" r="3" fill="#333"/>'
+            f'<text x="{box_x1-52}" y="{y+4:.0f}" text-anchor="end" font-size="12" font-family="monospace">{_esc(name)}</text>'
+        )
+    for i, name in enumerate(outputs):
+        y = cy(i)
+        parts.append(
+            f'<line x1="{box_x2}" y1="{y:.0f}" x2="{box_x2+46}" y2="{y:.0f}" stroke="#555" stroke-width="1.5"/>'
+            f'<circle cx="{box_x2}" cy="{y:.0f}" r="3" fill="#333"/>'
+            f'<text x="{box_x2+52}" y="{y+4:.0f}" text-anchor="start" font-size="12" font-family="monospace">{_esc(name)}</text>'
+        )
+
+    width = 720
+    height = box_y2 + 44
+    return f'''<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">
+  <rect width="{width}" height="{height}" fill="#ffffff"/>
+  <text x="{width/2}" y="30" text-anchor="middle" font-size="18" font-weight="bold" font-family="monospace">{_esc(project)}</text>
+  <text x="{width/2}" y="46" text-anchor="middle" font-size="10" fill="#999">模块框图（LLM 自由设计）</text>
+  <rect x="{box_x1}" y="{box_y1}" width="{box_w}" height="{box_h}" rx="6" fill="#f8fafc" stroke="#334155" stroke-width="2"/>
+  {''.join(parts)}
+</svg>
+'''
+
+
+def generate_generic_state_diagram(project: str, state_machine: dict) -> str:
+    """通用状态转移图：圆形布局，states/transitions/reset_state 由 design.json 提供。"""
+    states = [str(s) for s in state_machine.get("states", [])]
+    transitions = state_machine.get("transitions", [])
+    reset_state = state_machine.get("reset_state")
+    reset_state = str(reset_state) if reset_state is not None else ""
+
+    if not states:
+        return _empty_svg(project, "state_machine.states 为空，无法绘制状态图")
+
+    n = len(states)
+    cx, cy = 260.0, 170.0
+    R = 130.0 if n > 1 else 0.0
+    radius = 40
+
+    pos: dict[str, tuple[float, float]] = {}
+    for i, s in enumerate(states):
+        ang = -math.pi / 2 + 2 * math.pi * i / n
+        pos[s] = (cx + R * math.cos(ang), cy + R * math.sin(ang))
+
+    nodes, edges = [], []
+    for s in states:
+        x, y = pos[s]
+        is_reset = s == reset_state
+        stroke = "#b45309" if is_reset else "#3b82f6"
+        sw = 3 if is_reset else 2
+        nodes.append(
+            f'<circle cx="{x:.0f}" cy="{y:.0f}" r="{radius}" fill="#e8f0fe" stroke="{stroke}" stroke-width="{sw}"/>'
+            f'<text x="{x:.0f}" y="{y+4:.0f}" text-anchor="middle" font-size="12" font-family="monospace">{_esc(s)}</text>'
+        )
+        if is_reset:
+            nodes.append(f'<text x="{x:.0f}" y="{y-radius-8:.0f}" text-anchor="middle" font-size="10" fill="#b45309">复位</text>')
+
+    for t in transitions:
+        frm = str(t.get("from", ""))
+        to = str(t.get("to", ""))
+        label = str(t.get("label") or t.get("cond") or "")
+        if frm not in pos or to not in pos:
+            continue
+        x1, y1 = pos[frm]
+        x2, y2 = pos[to]
+        if frm == to:
+            edges.append(
+                f'<path d="M {x1+radius-8:.0f} {y1-radius+6:.0f} a {radius} {radius} 0 1 0 18 -18" '
+                f'fill="none" stroke="#16a34a" stroke-width="1.5" marker-end="url(#arrowG)"/>'
+            )
+            if label:
+                edges.append(f'<text x="{x1+radius+6:.0f}" y="{y1-radius-6:.0f}" font-size="10" fill="#15803d">{_esc(label)}</text>')
+            continue
+        dx, dy = x2 - x1, y2 - y1
+        dist = math.hypot(dx, dy) or 1.0
+        ux, uy = dx / dist, dy / dist
+        sx, sy = x1 + ux * radius, y1 + uy * radius
+        ex, ey = x2 - ux * radius, y2 - uy * radius
+        edges.append(
+            f'<line x1="{sx:.0f}" y1="{sy:.0f}" x2="{ex:.0f}" y2="{ey:.0f}" '
+            f'stroke="#3b82f6" stroke-width="1.5" marker-end="url(#arrowS)"/>'
+        )
+        if label:
+            mx, my = (x1 + x2) / 2, (y1 + y2) / 2
+            edges.append(f'<text x="{mx:.0f}" y="{my-8:.0f}" text-anchor="middle" font-size="10" fill="#555">{_esc(label)}</text>')
+
+    width, height = 520, 340
+    return f'''<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">
+  <defs>
+    <marker id="arrowS" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#3b82f6"/></marker>
+    <marker id="arrowG" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#16a34a"/></marker>
+  </defs>
+  <rect width="{width}" height="{height}" fill="#ffffff"/>
+  <text x="{width/2}" y="28" text-anchor="middle" font-size="15" font-weight="bold" font-family="monospace">{_esc(project)} 状态转移</text>
+  {''.join(nodes)}
+  {''.join(edges)}
+</svg>
+'''
+
+
+def _empty_svg(project: str, note: str) -> str:
+    return f'''<svg xmlns="http://www.w3.org/2000/svg" width="520" height="120" viewBox="0 0 520 120">
+  <rect width="520" height="120" fill="#ffffff"/>
+  <text x="260" y="55" text-anchor="middle" font-size="14" font-family="monospace">{_esc(project)}</text>
+  <text x="260" y="80" text-anchor="middle" font-size="11" fill="#999">{_esc(note)}</text>
+</svg>
+'''
+
+
+def write_design_diagrams(design_json: dict, diagrams_dir: Path) -> list[Path]:
+    """从 design.json（interface + 可选 state_machine）生成通用图纸。"""
+    diagrams_dir = Path(diagrams_dir)
+    diagrams_dir.mkdir(parents=True, exist_ok=True)
+    project = str(design_json.get("project", "design"))
+    interface = design_json.get("interface") or {}
+    state_machine = design_json.get("state_machine") or {}
+
+    written = []
+    block = diagrams_dir / "block_diagram.svg"
+    block.write_text(generate_generic_block_diagram(project, interface), encoding="utf-8")
+    written.append(block)
+
+    if state_machine.get("states"):
+        state = diagrams_dir / "state_diagram.svg"
+        state.write_text(generate_generic_state_diagram(project, state_machine), encoding="utf-8")
+        written.append(state)
+    return written

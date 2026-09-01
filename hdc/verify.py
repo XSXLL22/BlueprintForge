@@ -45,6 +45,10 @@ def run_simulation(
     dump_vcd: bool = False,
 ) -> SimResult:
     """编译并运行仿真，返回结构化结果。"""
+    # 统一解析为绝对路径：vp 子进程以 sim_dir 为 cwd，相对路径会在该 cwd 下错位
+    rtl = Path(rtl).resolve()
+    tb = Path(tb).resolve()
+    sim_dir = Path(sim_dir).resolve()
     sim_dir.mkdir(parents=True, exist_ok=True)
     vvp_path = sim_dir / "sim.vvp"
     log_path = sim_dir / "sim.log"
@@ -99,6 +103,8 @@ class SynthResult:
 
 def run_synthesis(tc: Toolchain, rtl: Path, synth_dir: Path, project: str) -> SynthResult:
     """运行 Yosys 综合，输出网表与资源报告。"""
+    rtl = Path(rtl).resolve()
+    synth_dir = Path(synth_dir).resolve()
     synth_dir.mkdir(parents=True, exist_ok=True)
     netlist = synth_dir / f"{project}_netlist.v"
     script = synth_dir / "synth.ys"

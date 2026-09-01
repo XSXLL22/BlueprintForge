@@ -1,4 +1,6 @@
 """端到端验收：完整闭环 + 错误注入（依赖 iverilog/yosys，未安装则跳过）。"""
+import os
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -36,6 +38,25 @@ class TestEndToEnd(unittest.TestCase):
         for rel in ["rtl/led_chaser.v", "tb/tb_led_chaser.v", "sim/sim.log",
                     "docs/spec.json", "docs/report.md", "README.md"]:
             self.assertTrue((r.out_dir / rel).exists(), f"缺少产物 {rel}")
+
+
+@unittest.skipUnless(TC.can_simulate, "iverilog/vvp 未安装，跳过仿真相关测试")
+class TestRelativeOutDir(unittest.TestCase):
+    """回归：用相对 --out 路径构建时，vvp 子进程 cwd 不应使 sim.vvp 路径错位。"""
+
+    def test_relative_out_dir(self):
+        with tempfile.TemporaryDirectory() as d:
+            old = os.getcwd()
+            try:
+                os.chdir(d)
+                shutil.copy(_FAST, "spec.json")
+                r = build(Path("spec.json"), Path("out"), run_synth=TC.can_synthesize)
+                self.assertIsNotNone(r.sim)
+                self.assertTrue(r.sim.passed, r.sim.log)
+                if TC.can_synthesize:
+                    self.assertTrue(r.synth.ok, r.synth.log)
+            finally:
+                os.chdir(old)
 
 
 if __name__ == "__main__":

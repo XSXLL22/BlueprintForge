@@ -22,7 +22,8 @@ class TestInject(unittest.TestCase):
 
     def test_wrong_interval_halves_divider(self):
         changed = inject.apply(self.rtl, "wrong_interval")
-        self.assertIn("DIVIDER   = 25000", changed)
+        self.assertIn("tick == (DIVIDER / 2) - 1", changed)
+        self.assertNotIn("tick == DIVIDER - 1", changed)
 
     def test_unknown_bug_raises(self):
         with self.assertRaises(ValueError):

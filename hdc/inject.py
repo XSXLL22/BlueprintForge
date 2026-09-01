@@ -20,11 +20,11 @@ def apply(rtl: str, bug: str) -> str:
         raise ValueError("未找到 shift 操作符，无法注入 wrong_direction")
 
     if bug == "wrong_interval":
-        m = re.search(r"(parameter DIVIDER\s*=\s*)(\d+)", rtl)
-        if not m:
-            raise ValueError("未找到 DIVIDER 参数，无法注入 wrong_interval")
-        half = int(m.group(2)) // 2
-        return rtl[: m.start(2)] + str(half) + rtl[m.end(2):]
+        # 改内部移位阈值（而非参数默认值，后者会被 tb 的 #(.DIVIDER) 覆盖）
+        rtl, n = re.subn(r"tick == DIVIDER - 1", "tick == (DIVIDER / 2) - 1", rtl, count=1)
+        if n == 0:
+            raise ValueError("未找到 tick 比较，无法注入 wrong_interval")
+        return rtl
 
     if bug == "wrong_reset":
         m_reset = re.search(r"localparam \[LED_COUNT-1:0\] RESET_LED = (\d+'b[01]+);", rtl)

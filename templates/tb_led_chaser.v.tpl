@@ -48,6 +48,14 @@ module tb_{{ project }};
         forever #{{ half_ns }} clk = ~clk;
     end
 
+    // waveform dump（仅 --dump 时由 iverilog -DDUMP_VCD 启用）
+    `ifdef DUMP_VCD
+    initial begin
+        $dumpfile("waveform.vcd");
+        $dumpvars(0, tb_{{ project }});
+    end
+    `endif
+
     // expected pattern sequence (one entry per interval step)
     initial begin
 {{ expect_seq_init }}

@@ -53,3 +53,17 @@ def detect() -> Toolchain:
         vvp=_find("vvp"),
         yosys=_find("yosys"),
     )
+
+
+def env_for(tool_path: str | None) -> dict:
+    """构造子进程环境，把工具所在目录及其相邻 lib/ 加入 PATH。
+
+    便携工具链（如 OSS CAD Suite）的可执行文件依赖位于 lib/ 的 DLL，只有把它加进
+    PATH 才能直接调用 yosys.exe 等；否则会报 "cannot open shared object file"。
+    """
+    env = dict(os.environ)
+    if tool_path:
+        bin_dir = os.path.dirname(os.path.abspath(tool_path))
+        lib_dir = os.path.join(os.path.dirname(bin_dir), "lib")
+        env["PATH"] = os.pathsep.join([bin_dir, lib_dir, env.get("PATH", "")])
+    return env

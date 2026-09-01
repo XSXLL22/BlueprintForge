@@ -6,7 +6,7 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from hdc.toolchain import Toolchain
+from hdc.toolchain import Toolchain, env_for
 
 
 # ---- 仿真 -------------------------------------------------------------------
@@ -53,7 +53,7 @@ def run_simulation(
     if dump_vcd:
         compile_cmd.insert(1, "-DDUMP_VCD")
 
-    cp = subprocess.run(compile_cmd, capture_output=True, text=True)
+    cp = subprocess.run(compile_cmd, capture_output=True, text=True, env=env_for(tc.iverilog))
     compile_out = (cp.stdout or "") + "\n" + (cp.stderr or "")
     if cp.returncode != 0:
         log_path.write_text("=== compile ===\n" + compile_out, encoding="utf-8")
@@ -62,7 +62,10 @@ def run_simulation(
             compile_output=compile_out, log="=== compile ===\n" + compile_out,
         )
 
-    rp = subprocess.run([tc.vvp, str(vvp_path)], capture_output=True, text=True, cwd=str(sim_dir))
+    rp = subprocess.run(
+        [tc.vvp, str(vvp_path)], capture_output=True, text=True,
+        cwd=str(sim_dir), env=env_for(tc.vvp),
+    )
     sim_out = (rp.stdout or "") + "\n" + (rp.stderr or "")
 
     full_log = "=== compile ===\n" + compile_out + "\n=== simulate ===\n" + sim_out
@@ -107,7 +110,10 @@ def run_synthesis(tc: Toolchain, rtl: Path, synth_dir: Path, project: str) -> Sy
         encoding="utf-8",
     )
 
-    cp = subprocess.run([tc.yosys, "-q", "-s", str(script)], capture_output=True, text=True)
+    cp = subprocess.run(
+        [tc.yosys, "-q", "-s", str(script)], capture_output=True, text=True,
+        env=env_for(tc.yosys),
+    )
     log = (cp.stdout or "") + "\n" + (cp.stderr or "")
     (synth_dir / "synth.log").write_text(log, encoding="utf-8")
 

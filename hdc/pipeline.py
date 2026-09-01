@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import json
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
-from hdc import generate
+from hdc import diagram, generate
 from hdc.inject import apply as inject_apply
 from hdc.spec import Spec, load
 from hdc.toolchain import detect
@@ -24,6 +24,7 @@ class BuildResult:
     synth: SynthResult | None
     injected_bug: str | None
     skipped: list
+    diagrams: list = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -54,7 +55,8 @@ def build(
     sim_dir = out_dir / "sim"
     synth_dir = out_dir / "synth"
     docs_dir = out_dir / "docs"
-    for d in (rtl_dir, tb_dir, sim_dir, synth_dir, docs_dir):
+    diagrams_dir = out_dir / "diagrams"
+    for d in (rtl_dir, tb_dir, sim_dir, synth_dir, docs_dir, diagrams_dir):
         d.mkdir(parents=True, exist_ok=True)
 
     rtl_text = generate.generate_rtl(spec)
@@ -85,6 +87,9 @@ def build(
         else:
             skipped.append("synth (yosys 未找到)")
 
+    # 图纸（模块框图 + 状态转移图）
+    diagrams = diagram.write_diagrams(spec, diagrams_dir)
+
     # 打包：spec 副本 + 报告 + README
     (docs_dir / "spec.json").write_text(json.dumps(spec.raw, ensure_ascii=False, indent=2), encoding="utf-8")
     (docs_dir / "report.md").write_text(_report(spec, sim, synth, inject), encoding="utf-8")
@@ -93,7 +98,7 @@ def build(
     return BuildResult(
         project=spec.project, out_dir=out_dir, spec=spec,
         rtl_path=rtl_path, tb_path=tb_path, sim=sim, synth=synth,
-        injected_bug=inject, skipped=skipped,
+        injected_bug=inject, skipped=skipped, diagrams=diagrams,
     )
 
 
@@ -153,6 +158,7 @@ def _project_readme(spec: Spec) -> str:
         f"- Testbench: `tb/tb_{spec.project}.v`\n"
         f"- 仿真日志: `sim/sim.log`\n"
         f"- 综合日志: `synth/synth.log`\n"
+        f"- 图纸: `diagrams/block_diagram.svg`、`diagrams/state_diagram.svg`\n"
         f"- 报告: `docs/report.md`\n\n"
         f"参数：{spec.led_count} 个 LED，{spec.freq_mhz:g} MHz，{spec.interval_ms:g} ms，"
         f"{spec.direction}，wrap={spec.wrap}，enable_port={spec.enable_port}。\n"

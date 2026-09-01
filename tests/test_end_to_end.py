@@ -36,6 +36,7 @@ class TestEndToEnd(unittest.TestCase):
     def test_output_tree_complete(self):
         r = self._build()
         for rel in ["rtl/led_chaser.v", "tb/tb_led_chaser.v", "sim/sim.log",
+                    "diagrams/block_diagram.svg", "diagrams/state_diagram.svg",
                     "docs/spec.json", "docs/report.md", "README.md"]:
             self.assertTrue((r.out_dir / rel).exists(), f"缺少产物 {rel}")
 

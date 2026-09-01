@@ -31,6 +31,7 @@
 │   ├── toolchain.py          #   检测 iverilog/vvp/yosys
 │   ├── inject.py             #   故意注入错误（验证 testbench 能检出）
 │   ├── verify.py             #   仿真 / 综合 + 结果解析 / 错误分类
+│   ├── diagram.py            #   生成模块框图 / 状态转移图（SVG）
 │   ├── pipeline.py           #   闭环编排 + 打包输出
 │   └── __main__.py           #   命令行入口
 └── tests/                    # unittest（不依赖模拟器的部分可直接跑）
@@ -86,6 +87,8 @@ output/led_chaser/
 ├── sim/waveform.vcd          # （--dump 时）波形
 ├── synth/synth.log           # Yosys 综合日志
 ├── synth/resource_report.txt # 资源报告（stat）
+├── diagrams/block_diagram.svg  # 模块框图
+├── diagrams/state_diagram.svg  # 状态转移图
 ├── docs/spec.json            # Spec 副本（事实来源）
 ├── docs/report.md            # 汇总报告
 └── README.md
@@ -145,7 +148,7 @@ python -m unittest discover tests
 - [x] 模糊需求 ≤3 轮追问内生成正确流水灯（澄清层以 Spec 字段表 + 默认值兜底实现）
 - [x] 自动仿真通过，testbench 能检出至少一个故意注入的错误
 - [x] Yosys 综合无 error（工具链安装后）
-- [ ] 模块框图 / 状态转移图（`diagrams/`，后续迭代补充）
+- [x] 模块框图 / 状态转移图（`diagrams/`，随 Spec 参数自动生成 SVG）
 - [x] 可修改 LED 数量、时钟频率、间隔、方向等参数
 - [x] 输出 HDL + testbench + 报告（+ 图纸待补）
 - [x] 全程可重复运行，无需人工改代码
@@ -154,5 +157,4 @@ python -m unittest discover tests
 
 - 仅支持流水灯一种设计类别；`type` 字段当前只作文档用途。
 - 复位仅支持异步（低/高有效）；同步复位暂未实现。
-- `diagrams/` 图纸（模块框图、状态转移图）尚未生成，留待下一迭代。
 - 不实现独立 IR 层，由 Spec 直接驱动生成。

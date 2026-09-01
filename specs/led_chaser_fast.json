@@ -1,0 +1,25 @@
+{
+  "project": "led_chaser",
+  "type": "sequential",
+  "clock": {
+    "freq_mhz": 50,
+    "reset": "async_active_low"
+  },
+  "interface": {
+    "inputs": ["clk", "rst_n", "en"],
+    "outputs": ["led"]
+  },
+  "behavior": {
+    "led_count": 4,
+    "direction": "left_to_right",
+    "interval_ms": 1,
+    "wrap": true,
+    "enable_port": true,
+    "enable_polarity": "active_high"
+  },
+  "target": "fpga",
+  "constraints": {
+    "toolchain": "iverilog+yosys",
+    "max_fix_rounds": 3
+  }
+}

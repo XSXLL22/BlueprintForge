@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 生成的设计产物（可重新生成）
+output/
+
+# 仿真/综合中间文件
+*.vvp
+*.vcd
+*.fst
+*.log
+
+# 编辑器 / 系统
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

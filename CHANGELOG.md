@@ -4,6 +4,51 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循
 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.3.0] - 2026-09-02
+
+第二段流水线落地：从一份 Verilog 到**嘉立创可上传的制造文件**，全程命令行，没有一次
+鼠标点击。路线是离散 74HC 逻辑门 + KiCad。4 位计数器端到端 `结论 : OK`（DRC 0 违规）。
+
+**尚未真板验证** —— 所有结论来自 KiCad 的 DRC 与对 Gerber 的格式自查。
+
+### 新增
+
+- 74 系列综合（`hdc/pcb/synth74.py`）：yosys + vendored `74xx-liberty` →
+  门级网表 JSON；yosys 脚本落盘可复现。
+- 芯片知识库（`hdc/pcb/cells.py`）：手写脚位 / 功能名 / 电气类型，按数据手册单测对照；
+  未收录的 cell 抛 `UnmappedCellError` 并给出补救提示，不静默跳过。
+- 装箱（`hdc/pcb/pack.py`）：cell → DIP 芯片 + 引脚号，宽单元优先、同片复用槽位。
+- 板级外围（`hdc/pcb/peripheral.py`）：电源排针 + 体电容 + 每片去耦 + 74HC14 RC 时钟
+  （带时钟源跳线）+ 按键复位 + 每输出位 LED 限流 + 输入排针下拉；参数集中在
+  `BoardOptions`。
+- 原理图（`hdc/pcb/schematic.py`）：纯函数渲染 `.kicad_sch`，自制 DIP 符号 + 标签连线，
+  图框注释自动写入每段外围的接法。
+- 封装（`hdc/pcb/footprints.py`）：读已装 KiCad 的官方库，几何原样内嵌进板文件。
+- 布局与铺铜（`hdc/pcb/layout.py`）：货架式摆件 + 自动板框 + B.Cu 整层 GND；
+  铺铜填充调 KiCad 自带 Python 的 `pcbnew`。
+- A\* 迷宫布线（`hdc/pcb/router.py`）：焊盘膨胀成禁区，按层计代价，顶层堵死才打过孔。
+- 制造文件（`hdc/pcb/manufacture.py`）：DRC + 7 层 Gerber + 钻孔 + BOM + CPL + 两份 PDF
+  + 嘉立创格式转换 + 可复现 ZIP（时间戳写死 1980-01-01）。
+- 链路编排与送厂判据（`hdc/pcb/pipeline.py`）：`PcbResult.ok` 五条同时成立才为真，
+  `errors()` 逐条列出拦路问题。
+- `--pcb` 开关与直接给 `.v` 的入口（`hdc/__main__.py`）。
+- 基准示例独立成目录（`examples/counter/`）：RTL + 自检 TB + 说明，作为单测的事实来源
+  （经 `tests/examples.py` 读取，`tests/test_examples.py` 守住契约）。
+- 文档：重写 `README.md`（技术路线 + 12 条实现要点 + 已实现/未实现如实分级）、
+  `USAGE.md` 扩成三部分技术手册（新增电路板层 7 节）、新增 `docs/architecture.md`。
+
+### 修复
+
+- Windows 上把输出重定向到管道/文件时，摘要里的 `mm²` 触发
+  `UnicodeEncodeError: 'gbk' codec` —— 电路板已经做完了才崩在打印上。新增
+  `hdc/console.py`，启动时把 `sys.stdout` / `sys.stderr` 钉成 UTF-8。
+
+### 变更
+
+- 计数器电路从测试代码里的字符串常量搬进 `examples/counter/*.v`：`hdc/` 与 `tests/`
+  中不再出现任何具体电路，测试验的就是用户手上那一份文件。
+- 回归规模 272 → **287 项**（`python -m unittest discover tests`，约 156 s）。
+
 ## [0.2.0] - 2026-09-01
 
 架构升级：生成侧从「模板填充」升级为「LLM 自由生成 + 工具链验证」。设计边界不再人为设限，

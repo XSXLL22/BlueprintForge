@@ -9,12 +9,19 @@ import argparse
 import sys
 from pathlib import Path
 
+from hdc.console import use_utf8
 from hdc.inject import BUG_TYPES
 from hdc.pipeline import build
 from hdc.toolchain import detect
 
 
 def main(argv: list[str] | None = None) -> int:
+    # 摘要里有 `mm²` 之类的非 ASCII 字符。Windows 上重定向到管道/文件时
+    # sys.stdout 会退回本地代码页（GBK），编不出来就在**构建成功之后**抛
+    # UnicodeEncodeError。先把输出流钉成 UTF-8，见 hdc/console.py。
+    use_utf8(sys.stdout)
+    use_utf8(sys.stderr)
+
     p = argparse.ArgumentParser(
         prog="hdc",
         description="AI 辅助数字硬件设计闭环（MVP）：从 Spec 生成流水灯并仿真/综合验证",

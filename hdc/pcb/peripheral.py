@@ -29,6 +29,9 @@ RESET_PORTS = frozenset({"C"})
 #: 顶层端口名里可识别为复位的模式。
 RESET_NAME_RE = re.compile(r"^(n?rst|reset|nreset)(_?n)?$", re.I)
 
+#: KiCad 电气类型。电源引脚标 power_in / power_out，ERC 才能查出「电源没人驱动」。
+PWR_IN, PWR_OUT, PASSIVE = "power_in", "power_out", "passive"
+
 _F = {
     "header": "Connector_PinHeader_2.54mm:PinHeader_1x{n:02d}_P2.54mm_Vertical",
     "cap": "Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm",
@@ -62,7 +65,12 @@ class BoardOptions:
 
 @dataclass(frozen=True)
 class Component:
-    """板上一个元件。`pins` 是「引脚号 → 网络名」，`near` 用于就近摆放。"""
+    """板上一个元件。`pins` 是「引脚号 → 网络名」，`near` 用于就近摆放。
+
+    `ports` / `pin_types` 是给原理图阶段用的引脚元数据：功能名（VCC、CLK、D0……）
+    与 KiCad 电气类型。放在这里是因为「哪个脚是输出、哪个脚是电源」这件事只有
+    装箱阶段（手里有 `ChipSpec`）知道，下游不该再去猜。
+    """
 
     ref: str
     value: str
@@ -71,6 +79,8 @@ class Component:
     pins: dict[int, str]
     description: str = ""
     near: str = ""
+    ports: dict[int, str] = field(default_factory=dict)
+    pin_types: dict[int, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -173,12 +183,21 @@ def _fmt_hz(value: float) -> str:
 def _add_chips(board: Board, asm: Assembly) -> None:
     """装箱结果原样搬到板上：引脚级连接表折成「引脚号 → 网络」。"""
     for chip in asm.chips:
+        conns = asm.pins_of(chip.ref)
         board.components.append(Component(
             ref=chip.ref, value=chip.part, footprint=chip.spec.footprint,
-            kind="ic", pins={c.pin: c.net for c in asm.pins_of(chip.ref)},
+            kind="ic", pins={c.pin: c.net for c in conns},
             description=f"{chip.spec.description}（用 {chip.used_slots}/"
                         f"{chip.spec.slot_count} 槽位）",
+            ports={c.pin: c.port for c in conns},
+            pin_types={c.pin: _pin_type(c.port, c.is_output) for c in conns},
         ))
+
+
+def _pin_type(port: str, is_output: bool) -> str:
+    if port in ("VCC", "GND", "TIE"):
+        return PWR_IN
+    return "output" if is_output else "input"
 
 
 def _add_power(board: Board, refs: _Refs, opts: BoardOptions) -> None:
@@ -187,11 +206,14 @@ def _add_power(board: Board, refs: _Refs, opts: BoardOptions) -> None:
         ref=header, value="POWER", footprint=_F["header"].format(n=2),
         kind="header", pins={1: VCC_NET, 2: GND_NET},
         description="电源输入（1=VCC，2=GND）",
+        ports={1: VCC_NET, 2: GND_NET},
+        pin_types={1: PWR_OUT, 2: PWR_OUT},   # 整板电源的唯一来源
     ))
     board.components.append(Component(
         ref=refs.take("C"), value=f"{opts.bulk_uf}uF", footprint=_F["cap_bulk"],
         kind="cap_bulk", pins={1: VCC_NET, 2: GND_NET},
         description="电源体电容，吸收整板开关电流", near=header,
+        ports={1: "+", 2: "-"},
     ))
     board.notes.append(
         f"电源：{header} 接 5V（1=VCC，2=GND）。74HC 系列 2~6V 均可工作，"
@@ -209,14 +231,21 @@ def _add_clock(board: Board, refs: _Refs, opts: BoardOptions, clock_net: str) ->
     select, chip = refs.take("J"), refs.take("U")
 
     pins = {spec.vcc: VCC_NET, spec.gnd: GND_NET}
+    ports = {spec.vcc: "VCC", spec.gnd: "GND"}
+    types = {spec.vcc: PWR_IN, spec.gnd: PWR_IN}
     pins[spec.slots[0]["A"]], pins[spec.slots[0]["Y"]] = "CLK_RC", "CLK_OSC"
     pins[spec.slots[1]["A"]], pins[spec.slots[1]["Y"]] = "CLK_OSC", "CLK_SRC"
-    for slot in spec.slots[2:]:
-        pins[slot["A"]] = GND_NET
+    for index, slot in enumerate(spec.slots, start=1):
+        if index > 2:
+            pins[slot["A"]] = GND_NET
+        ports[slot["A"]], types[slot["A"]] = f"{index}A", "input"
+        if slot["Y"] in pins:
+            ports[slot["Y"]], types[slot["Y"]] = f"{index}Y", "output"
 
     board.components.extend([
         Component(ref=chip, value=spec.part, footprint=spec.footprint, kind="ic",
-                  pins=pins, description=f"{spec.description}（振荡 + 整形）"),
+                  pins=pins, description=f"{spec.description}（振荡 + 整形）",
+                  ports=ports, pin_types=types),
         Component(ref=res, value=_fmt_ohm(opts.clock_r_ohm), footprint=_F["res"],
                   kind="res", pins={1: "CLK_RC", 2: "CLK_OSC"},
                   description="振荡定时电阻", near=chip),
@@ -226,6 +255,7 @@ def _add_clock(board: Board, refs: _Refs, opts: BoardOptions, clock_net: str) ->
         Component(ref=select, value="CLK_SEL", footprint=_F["header"].format(n=3),
                   kind="header",
                   pins={1: "CLK_SRC", 2: clock_net, 3: "CLK_EXT"},
+                  ports={1: "RC", 2: "CLK", 3: "EXT"},
                   description="时钟源选择：1-2 板载 RC，2-3 外部输入"),
     ])
     board.notes.append(
@@ -245,7 +275,8 @@ def _add_reset(board: Board, refs: _Refs, opts: BoardOptions,
                   kind="res", pins={1: rail, 2: net},
                   description=f"{net} {'上拉' if active_low else '下拉'}", near=button),
         Component(ref=button, value="RESET", footprint=_F["switch"], kind="switch",
-                  pins={1: net, 2: pressed}, description="复位按键"),
+                  pins={1: net, 2: pressed}, description="复位按键",
+                  ports={1: "A", 2: "B"}),
     ])
     polarity = "低电平复位" if active_low else "高电平复位"
     board.notes.append(
@@ -270,7 +301,7 @@ def _add_leds(board: Board, refs: _Refs, opts: BoardOptions, asm: Assembly) -> N
             led, res = refs.take("D"), refs.take("R")
             board.components.extend([
                 Component(ref=led, value="LED", footprint=_F["led"], kind="led",
-                          pins={1: GND_NET, 2: anode},
+                          pins={1: GND_NET, 2: anode}, ports={1: "K", 2: "A"},
                           description=f"{name}[{bit}] 状态指示（1=亮）"),
                 Component(ref=res, value=_fmt_ohm(opts.led_series_ohm),
                           footprint=_F["res"], kind="res", pins={1: net, 2: anode},
@@ -298,6 +329,7 @@ def _add_inputs(board: Board, refs: _Refs, opts: BoardOptions,
             ref=header, value=name.upper(),
             footprint=_F["header"].format(n=len(nets)), kind="header",
             pins={i + 1: n for i, n in enumerate(nets)},
+            ports={i + 1: f"{name}{i}" for i, _ in enumerate(nets)},
             description=f"输入 {name}（第 i 脚 = 第 i-1 位，LSB 在 1 脚）",
         ))
         for net in nets:
@@ -319,7 +351,7 @@ def _add_decoupling(board: Board, refs: _Refs, opts: BoardOptions) -> None:
             ref=refs.take("C"), value=f"{opts.decoupling_nf}nF", footprint=_F["cap"],
             kind="cap_decoupling", pins={1: VCC_NET, 2: GND_NET},
             description=f"{ic.ref} 电源去耦（须紧贴 {ic.ref} 的 VCC/GND 引脚）",
-            near=ic.ref,
+            near=ic.ref, ports={1: "+", 2: "-"},
         ))
 
 # --- 组装 -------------------------------------------------------------------

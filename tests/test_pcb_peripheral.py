@@ -132,6 +132,42 @@ class TestOutputsAndInputs(unittest.TestCase):
         self.assertEqual(len(downs), 2)
 
 
+class TestPinMetadata(unittest.TestCase):
+    """引脚功能名与电气类型：只有装箱阶段知道，必须随 Board 一起传给原理图。"""
+
+    def setUp(self):
+        self.board = peripheral.build_board(_counter_assembly())
+
+    def test_ic_pins_carry_port_names_from_the_assembly(self):
+        u1 = self.board.by_ref("U1")
+        self.assertEqual(u1.ports[11], "CLK")
+        self.assertEqual(u1.ports[1], "C")
+        self.assertEqual(u1.ports[20], "VCC")
+
+    def test_power_pins_are_power_in_and_outputs_are_output(self):
+        u1 = self.board.by_ref("U1")
+        self.assertEqual(u1.pin_types[20], "power_in")
+        self.assertEqual(u1.pin_types[10], "power_in")
+        self.assertEqual(u1.pin_types[2], "output")     # Q
+        self.assertEqual(u1.pin_types[11], "input")     # CLK
+
+    def test_power_header_drives_the_rails(self):
+        j1 = self.board.by_ref("J1")
+        self.assertEqual(set(j1.pin_types.values()), {"power_out"})
+
+    def test_schmitt_stages_are_named_per_gate(self):
+        hc14 = next(c for c in self.board.components if c.value == "74HC14")
+        self.assertEqual(hc14.ports[1], "1A")
+        self.assertEqual(hc14.ports[2], "1Y")
+        self.assertEqual(hc14.ports[3], "2A")
+        self.assertEqual(hc14.pin_types[2], "output")
+        self.assertNotIn(6, hc14.ports)                 # 未用的输出不接线
+
+    def test_discrete_parts_default_to_passive(self):
+        r1 = self.board.by_ref("R1")
+        self.assertEqual(r1.pin_types, {})
+
+
 class TestBoardIntegrity(unittest.TestCase):
     def setUp(self):
         self.board = peripheral.build_board(_counter_assembly())

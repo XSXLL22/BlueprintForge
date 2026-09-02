@@ -20,6 +20,12 @@
 焊盘坐标从真实封装库算出来，直接喂给 `router.route()`。GND 不走线，交给 B.Cu
 整层铺铜（`skip_nets`），所以底层几乎是完整的地平面，顶层留给信号。
 
+「几乎完整」要当成约束来守，不能靠运气：信号如果在底层长途奔袭，两条竖线加两
+条横线就能把地平面圈出一块孤岛，落在里面的 GND 焊盘就浮了（实测过，DRC 报
+`unconnected_items`）。所以底层的**每格走线代价**调成顶层的 6 倍 —— 穿越一下
+照旧便宜，长途绕不过去。`fill_zones()` 顺手数出连通块个数，把这件事变成可验证
+的数字而不是希望。
+
 铺铜的**填充**必须由 KiCad 自己算（多边形布尔运算 + 热焊盘），这是全流程唯一
 绕不开 pcbnew 的一步，隔离在 `fill_zones()` 里。`render()` 本身是纯函数。
 """
@@ -105,9 +111,10 @@ class LayoutOptions:
     copper_inset: float = 1.0
     #: 左上角第一个元件的落点。
     origin: tuple[float, float] = (15.0, 15.0)
-    #: 布线参数。GND 默认不走线，交给底层铺铜。
+    #: 布线参数。GND 不走线，交给底层铺铜；底层每格贵 6 倍，长途留给顶层。
     route: router.RouteOptions = router.RouteOptions(
-        skip_nets=frozenset({GND_NET}), via_cost=30.0)
+        skip_nets=frozenset({GND_NET}), via_cost=8.0,
+        layer_cost=(1.0, 6.0))
 
 
 @dataclass(frozen=True)
@@ -385,8 +392,22 @@ def write_pcb(board: Board, out_dir: Path,
     return path
 
 
-def fill_zones(path: Path) -> float:
-    """就地填充铺铜，返回填充面积（mm²）。这是唯一必须用 pcbnew 的一步。
+@dataclass(frozen=True)
+class ZoneFill:
+    """铺铜填充的结果：面积（mm²）与**连通块个数**。
+
+    `islands` 是地平面完整性的判据。KiCad 默认把「没有任何焊盘落在上面」的碎铜
+    删掉，所以数出来的每一块都挂着焊盘 —— 于是 `islands == 1` 正好等价于「没有
+    哪个 GND 焊盘被围在孤岛里」。大于 1 就是真缺陷：那些焊盘的地是浮的，DRC 会
+    报 `unconnected_items`。
+    """
+
+    area: float
+    islands: int
+
+
+def fill_zones(path: Path) -> ZoneFill:
+    """就地填充铺铜，返回面积与连通块数。这是唯一必须用 pcbnew 的一步。
 
     多边形布尔运算 + 热焊盘连接自己写一遍不现实，而且必须与 KiCad 的 DRC 用同一
     套算法才有意义 —— 所以这里老老实实调 KiCad 自带的 Python。
@@ -397,9 +418,11 @@ def fill_zones(path: Path) -> float:
         f"board = pcbnew.LoadBoard({str(path)!r})\n"
         "pcbnew.ZONE_FILLER(board).Fill(board.Zones())\n"
         "area = sum(z.GetFilledArea() for z in board.Zones())\n"
+        "parts = sum(z.GetFilledPolysList(layer).OutlineCount()\n"
+        "            for z in board.Zones() for layer in z.GetLayerSet().Seq())\n"
         "pcbnew.SaveBoard(%r, board)\n"
         # GetFilledArea 是内部单位的平方，换两次才到 mm²
-        "print('FILLED_AREA', pcbnew.ToMM(pcbnew.ToMM(area)))\n" % str(path),
+        "print('FILLED_AREA', pcbnew.ToMM(pcbnew.ToMM(area)), parts)\n" % str(path),
         encoding="utf-8")
     try:
         proc = kicad.run_python([script], check=True)
@@ -407,5 +430,6 @@ def fill_zones(path: Path) -> float:
         script.unlink(missing_ok=True)
     for line in proc.stdout.splitlines():
         if line.startswith("FILLED_AREA"):
-            return float(line.split()[1])
+            _, area, parts = line.split()
+            return ZoneFill(area=float(area), islands=int(parts))
     raise kicad.KicadError(f"铺铜脚本没有报出面积：\n{proc.stdout}\n{proc.stderr}")

@@ -317,7 +317,7 @@ class TestKicadAccepts(_Planned):
         super().setUpClass()
         cls._tmp = TemporaryDirectory()
         cls.path = layout.write_pcb(cls.board, Path(cls._tmp.name))
-        cls.area = layout.fill_zones(cls.path)
+        cls.fill = layout.fill_zones(cls.path)
 
     @classmethod
     def tearDownClass(cls):
@@ -336,8 +336,18 @@ class TestKicadAccepts(_Planned):
 
     def test_filling_the_gnd_zone_covers_real_area(self):
         x1, y1, x2, y2 = self.plan.outline
-        self.assertGreater(self.area, 0.3 * (x2 - x1) * (y2 - y1),
-                           f"铺铜只盖住 {self.area:.0f}mm²")
+        self.assertGreater(self.fill.area, 0.3 * (x2 - x1) * (y2 - y1),
+                           f"铺铜只盖住 {self.fill.area:.0f}mm²")
+
+    def test_the_ground_plane_is_one_single_piece(self):
+        """地平面必须是一整块。
+
+        KiCad 会把「没有焊盘落在上面」的碎铜自动删掉，所以数出来的每一块都挂着
+        焊盘 —— 大于 1 就意味着某些 GND 焊盘的地只连到一座孤岛上（信号在底层长途
+        奔袭时会围出这种孤岛），DRC 随后会报 `unconnected_items`。
+        """
+        self.assertEqual(self.fill.islands, 1,
+                         f"地平面被切成 {self.fill.islands} 块")
 
     def test_drc_reports_no_violations(self):
         report = self.path.with_name("drc.rpt")

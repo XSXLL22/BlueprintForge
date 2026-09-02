@@ -250,6 +250,64 @@ class TestObstaclesAndLayers(unittest.TestCase):
         self.assertTrue(result.vias, "顶层封死却没打过孔")
 
 
+class TestPlaneLayerCost(unittest.TestCase):
+    """`layer_cost`：铺铜那一层不欢迎长途走线。
+
+    长途占用铺铜层会把地平面围出孤岛（真板上实测过），所以底层每格调贵。判据只
+    看**结果落在哪一层**，不看代价怎么算的。
+    """
+
+    def _walled(self) -> list[Pad]:
+        """一堵只挡顶层的实心铜墙：绕过去要走远路，钻到底层却是坦途。
+
+        每个障碍焊盘各自一个网络 —— 于是它们是单焊盘网络（不会被布线），却照样
+        占着格点当障碍。
+        """
+        wall = [Pad(f"w{ix}_{iy}", 1.27 * ix, 1.27 * iy, radius=0.4, layers=(0,))
+                for ix in range(16) for iy in range(-16, 17)]
+        return [Pad("a", -3.81, 0.0), Pad("a", 22.86, 0.0), *wall]
+
+    def _length_on(self, result, layer: int) -> float:
+        return sum(abs(s.x2 - s.x1) + abs(s.y2 - s.y1)
+                   for s in result.segments if s.layer == layer)
+
+    def test_without_the_penalty_the_router_takes_the_shortcut_underneath(self):
+        """前提确认：默认参数下它确实会钻底层长途穿越 —— 这才是要治的病。"""
+        pads = self._walled()
+        result = route(pads)
+        self.assertEqual(result.unrouted, [])
+        self.assertGreater(self._length_on(result, 1), 15.0,
+                           "这堵墙没能逼出底层长途，测试前提不成立")
+
+    def test_a_costly_plane_layer_keeps_long_hauls_on_the_signal_layer(self):
+        pads = self._walled()
+        result = route(pads, RouteOptions(layer_cost=(1.0, 6.0)))
+        self.assertEqual(result.unrouted, [])
+        self.assertTrue(_net_is_connected(result, pads, "a"))
+        self.assertEqual(self._length_on(result, 1), 0.0,
+                         "铺铜层上还是有长途走线")
+        self.assertEqual(result.vias, [])
+
+    def test_the_penalty_never_makes_a_net_unroutable(self):
+        """底层再贵也只是「贵」：顶层封死时照样打孔下去，正确性不让给偏好。"""
+        pads = [Pad("a", 0, 0), Pad("a", 25.4, 0)]
+        pads += [Pad(f"w{y}", 12.7, y * 1.27, radius=0.5, layers=(0,))
+                 for y in range(-16, 17)]
+        result = route(pads, RouteOptions(layer_cost=(1.0, 6.0)))
+        self.assertEqual(result.unrouted, [])
+        self.assertTrue(_net_is_connected(result, pads, "a"))
+        self.assertTrue(result.vias, "顶层封死却没打过孔")
+
+    def test_an_all_ones_cost_table_changes_nothing(self):
+        """缺省（空表）与「每层都是 1.0」必须逐字一致 —— 老板子不会因此变样。"""
+        pads = _dip({1: "a", 7: "b", 8: "b", 14: "a"}) + [Pad("a", 25.4, 0),
+                                                          Pad("b", 25.4, 7.62)]
+        plain = route(pads)
+        ones = route(pads, RouteOptions(layer_cost=(1.0, 1.0)))
+        self.assertEqual(plain.segments, ones.segments)
+        self.assertEqual(plain.vias, ones.vias)
+
+
 class TestNoShorts(unittest.TestCase):
     def test_dense_two_chip_board_has_no_clearance_violation(self):
         nets = {1: "n1", 2: "n2", 3: "n3", 4: "n4", 5: "n5", 6: "n6",

@@ -14,6 +14,9 @@
 * 每个焊盘按「焊盘半径 + 间距 + 半线宽」膨胀成一片**禁区**，禁区内的格点只有
   该焊盘自己的网络能用。两个网络同时想要一个格点 → 谁都不能用。
 * 过孔比走线粗，所以另算一张按过孔半径膨胀的禁区图，只在换层时查。
+* 层不是平等的：`layer_cost` 给每层一个走线代价倍率。铺铜层倍率调高，于是穿越
+  一下便宜、长途占用很贵 —— 地平面不会被一条长线圈出孤岛。倍率 ≥ 1，曼哈顿
+  估价才仍是下界。
 * 引脚间距不是 1.27 整数倍的元件（电容 5.0mm、按键），焊盘吸附到最近格点，
   再补一小段引出线；吸附距离会加进禁区半径，所以这段引出线也不会撞到别人。
 
@@ -57,14 +60,26 @@ class RouteOptions:
     via_diameter: float = 0.8
     via_drill: float = 0.4
     layers: int = 2
-    #: 换层代价（单位：格）。太小会到处打孔，把底层地平面切碎。
+    #: 换层代价（单位：格）。
     via_cost: float = 12.0
     #: 拐弯代价（单位：格）。只影响美观，不影响正确性。
     bend_cost: float = 1.0
+    #: 每层的**走线**代价倍率（下标 = 层号，缺项按 1.0）。
+    #:
+    #: 铺铜那一层给个大倍率：短距离穿越照旧便宜，长距离就绕不过去了 —— 长途占用
+    #: 铺铜层会把地平面围出孤岛（实测过：两条竖线加两条横线就圈死一块）。倍率
+    #: **不可小于 1**，否则 A\* 的曼哈顿估价不再是下界，最短路不再保证。
+    layer_cost: tuple[float, ...] = ()
     #: 由铺铜覆盖、不必走线的网络（一般是 GND）。
     skip_nets: frozenset[str] = frozenset()
     #: 搜索范围在焊盘外框之外再放宽多少格。
     margin_cells: int = 10
+
+    def cost_of(self, layer: int) -> float:
+        """某一层走一格的代价倍率。没配就是 1.0。"""
+        if 0 <= layer < len(self.layer_cost):
+            return self.layer_cost[layer]
+        return 1.0
 
 
 @dataclass(frozen=True)
@@ -184,9 +199,10 @@ def _estimate(node: tuple[int, int, int], targets, grid: float) -> float:
 def _neighbours(grid: _Grid, net: str, state, opts: RouteOptions):
     layer, ix, iy, heading = state
     out = []
+    step_cost = opts.grid * opts.cost_of(layer)
     for index, (dx, dy) in enumerate(_STEPS):
         if grid.open_for(net, layer, ix + dx, iy + dy):
-            cost = opts.grid
+            cost = step_cost
             if heading != len(_STEPS) and index != heading:
                 cost += opts.bend_cost * opts.grid
             out.append(((layer, ix + dx, iy + dy, index), cost))

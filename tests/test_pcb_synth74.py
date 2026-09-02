@@ -6,21 +6,15 @@ from pathlib import Path
 
 from hdc.pcb import synth74
 from hdc.toolchain import detect
+from tests.examples import counter_rtl
 
 TC = detect()
 
-COUNTER_RTL = """module counter (
-    input  wire clk,
-    input  wire rst_n,
-    output reg [3:0] count
-);
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) count <= 4'b0;
-        else        count <= count + 1'b1;
-    end
-endmodule
-"""
+#: 基准电路读自 `examples/counter/counter.v` —— 测试里不再抄一份。用户
+#: `python -m hdc examples/counter/counter.v --pcb` 跑的就是这一份文件。
+COUNTER_RTL = counter_rtl()
 
+#: 只在本模块用到的最小组合逻辑，没有对应的示例目录，就地写着更清楚。
 COMB_RTL = """module gate2 (
     input  wire a,
     input  wire b,

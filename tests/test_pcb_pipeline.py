@@ -25,7 +25,7 @@ from hdc.pcb.pack import GND_NET, VCC_NET, Assembly, ChipInstance, PinConn
 from hdc.pcb.pipeline import PcbResult, build_pcb, write_project
 from hdc.pcb.synth74 import Netlist74
 from hdc.toolchain import detect
-from tests.test_pcb_synth74 import COUNTER_RTL
+from tests.examples import counter_rtl
 
 TC = detect()
 
@@ -141,9 +141,10 @@ class TestProjectFile(unittest.TestCase):
 # --- 只做到原理图（只需要 yosys） --------------------------------------------
 
 def _write_rtl(into: Path) -> Path:
+    """把示例计数器抄到临时目录 —— 不在 `examples/` 里生成中间产物。"""
     into.mkdir(parents=True, exist_ok=True)
     rtl = into / "counter.v"
-    rtl.write_text(COUNTER_RTL, encoding="utf-8")
+    rtl.write_text(counter_rtl(), encoding="utf-8")
     return rtl
 
 

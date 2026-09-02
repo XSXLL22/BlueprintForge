@@ -5,68 +5,14 @@ from pathlib import Path
 
 from hdc.design import Design, load_artifacts, verify_design, write_artifacts
 from hdc.toolchain import detect
+from tests.examples import counter_rtl, counter_tb
 
 TC = detect()
 
-# 最小合法设计：4 位计数器（异步低复位），完全脱离流水灯模板
-RTL = """module counter (
-    input  wire clk,
-    input  wire rst_n,
-    output reg [3:0] count
-);
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n)
-            count <= 4'b0;
-        else
-            count <= count + 1'b1;
-    end
-endmodule
-"""
-
-TB = """`timescale 1ns / 1ps
-module tb_counter;
-    reg clk;
-    reg rst_n;
-    wire [3:0] count;
-    integer fail_count;
-
-    counter dut (.clk(clk), .rst_n(rst_n), .count(count));
-
-    initial begin clk = 1'b0; forever #5 clk = ~clk; end
-
-    task check;
-        input [255:0] name;
-        input ok;
-        begin
-            if (ok) $display("CHECK %0s: PASS", name);
-            else begin
-                $display("CHECK %0s: FAIL", name);
-                fail_count = fail_count + 1;
-            end
-        end
-    endtask
-
-    initial begin
-        fail_count = 0;
-        rst_n = 1'b0;
-        repeat (4) @(posedge clk);
-        #1;
-        check("reset_zero", count === 4'b0);
-        rst_n = 1'b1;
-        repeat (1) @(posedge clk);
-        #1;
-        check("counts_up", count === 4'd1);
-        repeat (3) @(posedge clk);
-        #1;
-        check("counts_up_4", count === 4'd4);
-        if (fail_count == 0)
-            $display("SIM_RESULT: PASS");
-        else
-            $display("SIM_RESULT: FAIL (%0d check(s) failed)", fail_count);
-        $finish;
-    end
-endmodule
-"""
+# 最小合法设计：4 位计数器（异步低复位），完全脱离流水灯模板。
+# RTL 与 TB 都读自 `examples/counter/` —— 示例是事实来源，测试不抄第二份。
+RTL = counter_rtl()
+TB = counter_tb()
 
 
 def _counter_design() -> Design:
